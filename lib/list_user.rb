@@ -31,6 +31,7 @@ class ListUser
                    joins(:assigned_to).
                         where(issue[:assigned_to_id].in(userIDs)).      # Are assigned to one of the interesting users
                         where(project[:status].eq(1)).                  # Do not belong to an inactive project
+                        where(project[:name].not_eq('CONGES')).         # Do not load special conges project    
                         where(issue_status[:is_closed].eq(false))       # Is open
 
     #  Filter out all issues that have children; They do not *directly* add to
@@ -72,6 +73,8 @@ class ListUser
       # Initialize all days to inactive
       timeSpan.each do |day|
 
+        isHoliday =  DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).include?(day)
+
         # A day is active if it is after the issue start and before the issue due date
         isActive = (day <= issue.due_date && (issue.start_date.nil? || issue.start_date >= day))
 
@@ -79,7 +82,7 @@ class ListUser
           :hours => 0.0,
           :active => isActive,
           :noEstimate => false,
-          :holiday => !workingDays.include?(day)
+          :holiday => isHoliday
         }
       end
 
@@ -93,7 +96,7 @@ class ListUser
     elsif issue.due_date.nil? || issue.start_date.nil? then
       timeSpan.each do |day|
 
-        isHoliday = !workingDays.include?(day)
+        isHoliday = DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).include?(day)
 
         # Check: Is the issue is active on day?
         if ( (!issue.due_date.nil?)   && (day <= issue.due_date)  ) ||
@@ -123,12 +126,13 @@ class ListUser
     # The issue has start and end date
     else
       # Number of remaining working days for the issue:
-      numberOfWorkdaysForIssue = DateTools::getRealDistanceInDays([today, issue.start_date].max..issue.due_date)
+      nbOfWorkdaysForIssue = DateTools::getRealDistanceInDays([today, issue.start_date].max..issue.due_date)
+      numberOfWorkdaysForIssue = nbOfWorkdaysForIssue - DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).count
       hoursPerWorkday = hoursRemaining/numberOfWorkdaysForIssue.to_f
 
       timeSpan.each do |day|
 
-        isHoliday = !workingDays.include?(day)
+        isHoliday = DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).include?(day)
 
         if (day >= issue.start_date) && (day <= issue.due_date) then
 
@@ -187,7 +191,8 @@ class ListUser
     issues.each do |issue|
 			
 			assignee = issue.assigned_to
-			
+
+		
       if !result.has_key?(issue.assigned_to) then
 			result[assignee] = {
 					:overdue_hours => 0.0,
@@ -197,9 +202,10 @@ class ListUser
 				}
 					
 				timeSpan.each do |day|
+          isHoliday = DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).include?(day)
 					result[assignee][:total][day] = {
 						:hours => 0.0,
-						:holiday => !workingDays.include?(day)
+						:holiday => isHoliday
 					}
 				end
 			end
@@ -221,6 +227,7 @@ class ListUser
 				result[assignee][:invisible] = addIssueInfoToSummary(result[assignee][:invisible], hoursForIssue, timeSpan) unless issue.overdue?
 			else
 				project = issue.project
+
 				
 				if !result[assignee].has_key?(project) then
 					result[assignee][project] = {
@@ -230,9 +237,10 @@ class ListUser
 					}
 					
 					timeSpan.each do |day|
+            isHoliday = DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).include?(day)
 						result[assignee][project][:total][day] = {
 							:hours => 0.0,
-							:holiday => !workingDays.include?(day)
+							:holiday => isHoliday
 						}
 					end
 				end
@@ -334,8 +342,9 @@ class ListUser
 		summary = Hash::new if summary.nil?
 		
 		timeSpan.each do |day|
+      #isHoliday = DateTools::getHolydaysDaysInTimespan(timeSpan, issue.assigned_to).include?(day)
 			if !summary.has_key?(day) then
-				summary[day] = {:hours => 0.0, :holiday => !workingDays.include?(day)}
+				summary[day] = {:hours => 0.0, :holiday => false}
 			end
 			
 			summary[day][:hours] += issueInfo[day][:hours]

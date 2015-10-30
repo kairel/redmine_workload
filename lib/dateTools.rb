@@ -17,9 +17,46 @@ class DateTools
     return result
   end
 
+  @@getHolydayDaysInTimespanCache = {}
+
+  def self.getHolydaysDaysInTimespan(timeSpan, user, noCache = true)
+    raise ArgumentError unless timeSpan.kind_of?(Range)
+    raise ArgumentError unless user.kind_of?(User)
+
+    return @@getHolydayDaysInTimespanCache[timeSpan][user] unless @@getHolydayDaysInTimespanCache[timeSpan].nil? ||
+        @@getHolydayDaysInTimespanCache[timeSpan][user].nil? || noCache
+
+    issue = Issue.arel_table
+    project = Project.arel_table
+    issue_status = IssueStatus.arel_table
+
+    # Fetch all issues that on holidays project
+    issues = Issue.joins(:project).
+        joins(:status).
+        joins(:assigned_to).
+        where(issue[:assigned_to_id].eq(user.id)).# Are assigned to the interesting user
+        where(project[:name].eq("CONGES")). # Are on the interesting project
+        where(issue_status[:is_closed].eq(false)) # Is valid
+
+    result = Set::new
+    timeSpan.each do |day|
+      issues.each do |issue|
+        if (day >= issue.start_date && day <= issue.due_date)
+          result.add(day)
+        end
+      end
+    end
+
+    @@getHolydayDaysInTimespanCache[timeSpan] = {} if @@getHolydayDaysInTimespanCache[timeSpan].nil?
+    @@getHolydayDaysInTimespanCache[timeSpan][user] = result
+
+    return result
+
+  end
+
   @@getWorkingDaysInTimespanCache = Hash::new
 
-  def self.getWorkingDaysInTimespan(timeSpan, noCache = false)
+  def self.getWorkingDaysInTimespan(timeSpan, noCache = true)
     raise ArgumentError unless timeSpan.kind_of?(Range)
 
     return @@getWorkingDaysInTimespanCache[timeSpan] unless @@getWorkingDaysInTimespanCache[timeSpan].nil? || noCache
